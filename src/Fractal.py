@@ -13,6 +13,7 @@ import Tkinter as tk
 import Image          # PIL
 import ImageTk        # PIL
 import random
+import cv2
 
 import pycuda.driver as drv
 import pycuda.tools
@@ -21,10 +22,13 @@ from pycuda.compiler import SourceModule
 import pycuda.gpuarray as gpuarray
 
 # set width and height of window, more pixels take longer to calculate
-scale = 5
+scale = 3
 w = 350*scale
 h = 300*scale
 zoomFactor = 0.5
+frames = 60
+
+imgs = []
 
 from pycuda.elementwise import ElementwiseKernel
 complex_gpu = ElementwiseKernel(
@@ -110,9 +114,9 @@ class Mandelbrot(object):
         self.yLength = 3
         # create window
         self.root = tk.Tk()
-        self.root.tk.call('tk', 'scaling', 2.0)
+        #self.root.tk.call('tk', 'scaling', 2.0)
         self.root.title("Mandelbrot Set")
-        self.create_image()
+        self.create_image(self.originX, self.originX+self.xLength, self.originY-self.yLength, self.originY)
         self.create_label()
         self.root.bind('<Button-1>', self.buttonPressed)
         # start event loop
@@ -120,7 +124,7 @@ class Mandelbrot(object):
 
 
     def draw(self, x1, x2, y1, y2, maxiter=300):
-        print("x1: {}, x2: {}, y1: {}, y2: {}, xLen: {}, yLen: {}, w: {}, h: {}".format(x1,x2,y1,y2, self.xLength, self.yLength, w, h))
+        #print("x1: {}, x2: {}, y1: {}, y2: {}, xLen: {}, yLen: {}, w: {}, h: {}".format(x1,x2,y1,y2, self.xLength, self.yLength, w, h))
 
         # draw the Mandelbrot set, from numpy example
         xx = nm.arange(x1, x2,(x2-x1)/w)
@@ -145,11 +149,11 @@ class Mandelbrot(object):
         # convert output to a string
         self.mandel = output.tostring()
 
-    def create_image(self):
+    def create_image(self, x1, x2, y1, y2):
 
         self.im = Image.new("RGB", (w, h))
         # you can experiment with these x and y ranges
-        self.draw(self.originX, self.originX+self.xLength, self.originY-self.yLength, self.originY, 1000)
+        self.draw(x1, x2, y1, y2, 1000)
 
         self.im.frombytes(self.mandel, "raw", "RGBX", 0, -1)
 
@@ -157,6 +161,10 @@ class Mandelbrot(object):
         self.image = ImageTk.PhotoImage(self.im)
         self.label = tk.Label(self.root, image=self.image)
         self.label.pack()
+
+    def calcIncrement(self, prev, new, nbr):
+        return (new-prev)/nbr
+
 
     def buttonPressed(self, event):
         print("Pressed at [ " + str(event.x) + ", " + str(event.y) + " ]")
@@ -173,18 +181,50 @@ class Mandelbrot(object):
         xClickPt = self.originX + deltaX
         yClickPt = self.originY - deltaY
 
+        newOriginX = xClickPt - (self.xLength * 0.5 * zoomFactor)
+        newOriginY = yClickPt + (self.yLength * 0.5 * zoomFactor)
+        newxLen = self.xLength * zoomFactor
+        newyLen = self.yLength * zoomFactor
+
+        deltaOx = (newOriginX - self.originX)/frames
+        deltaOy = (newOriginY-self.originY)/frames
+        deltaXLen = (newxLen -self.xLength)/frames
+        deltaYLen = (newyLen-self.yLength)/frames
+
+        for i in range(frames):
+            tmpOx = (deltaOx * i) + self.originX
+            tmpOy = (deltaOy * i) + self.originY
+            tmpDeltaXLen = (deltaXLen * i) + self.xLength
+            tmpDeltaYLen = (deltaYLen * i) + self.yLength
+            self.create_image(tmpOx, tmpOx+tmpDeltaXLen, tmpOy-tmpDeltaYLen, tmpOy)
+            imgs.append(self.im)
+
         self.originX = xClickPt - (self.xLength * 0.5 * zoomFactor)
         self.originY = yClickPt + (self.yLength * 0.5 * zoomFactor)
 
         self.xLength *= zoomFactor
         self.yLength *= zoomFactor
 
-        self.create_image()
+        self.create_image(self.originX, self.originX+self.xLength, self.originY-self.yLength, self.originY)
         self.label.destroy()
         self.create_label()
 
+    def renderVideo(self):
+        fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+        video = cv2.VideoWriter('output.avi', fourcc, 20.0, (w, h))
 
+        for img in imgs:
+            img = img.convert('RGB')
+            img = nm.array(img)
+            video.write(img)
+
+        cv2.destroyAllWindows()
+        video.release()
 
 # test the class
 if __name__ == '__main__':
-    test = Mandelbrot()
+    mandelbrot = Mandelbrot()
+    mandelbrot.renderVideo()
+
+
+
